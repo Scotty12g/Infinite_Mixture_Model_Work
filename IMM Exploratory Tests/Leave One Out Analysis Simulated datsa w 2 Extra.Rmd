@@ -1,0 +1,110 @@
+---
+title: "IMM Analysis of Simulated Data using 2 extra Groups"
+output: html_notebook
+---
+
+We first simulated multivariate (5 hypothetical elements) data for 20 individuals from each of 5 groups (n = 100) by randomly selecting elemental values from normal distributions (both mean and SD varied by element and by group). Below are the4 first 2 principle components for the 5 groups. Group dispersion and overlap varied greatly.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leave.one.out.results<-readRDS("/Users/scottmorello/Dropbox/Archives/Academic/UMass Boston/Etter Lab/Projects/Trace Element Mussel Connectivity/R Work/Infinite Mixture Model in R/Jags_Work/leaveoneoutresultsSimulation_TwoExtra.rds")
+
+
+# PCA plot
+library("ggplot2")
+library("ggfortify")
+
+autoplot(prcomp(ICPMS.all.2015.juvdat.val.trans), 
+         data = ICPMS.all.2015.juvdat.env, 
+         colour = "Site",
+         loadings = TRUE,
+         loadings.label = TRUE,
+         frame = TRUE, 
+         frame.type = 'norm')+
+  theme_bw()
+```
+
+
+I ran an Infinite Mixture Model with different co-variance priors, and using a leave-one-out method to assign individuals to groups. I also did not train the IMM on groups 4 and 5, and allowed the model to assign individuals to extra groups.
+
+The posterior assignment probabilities for each individual (each colored line) are displayed below. While many co-variance matrices did a decent job classifying individuals to trained groups, the Identity (ID) co-variance matrix most consistently assigned untrained group individuals to an extra group. Since only 3 groups were trained, and the leave-one-out approach only assigned 1 individual per run, individuals from both extra groups (4 and 5) were assigned to group 4.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leave.one.out.results.byind.table<-melt(leave.one.out.results,id.vars=c("Individual","Cov_Prior","Actual"))
+colnames(leave.one.out.results.byind.table)[3:5]<-c("Actual_Source","Predicted_Source","Percent_Assignment")
+
+leave.one.out.results.byind.table$Predicted_Source<-factor(leave.one.out.results.byind.table$Predicted_Source)
+levels(leave.one.out.results.byind.table$Predicted_Source)<-c(levels(ICPMS.all.2015.juvdat.env[sampind,"Site"]),c(refsite.n+1:extrasite.n))
+
+leave.one.out.results.byind.table$Actual_Source<-factor(leave.one.out.results.byind.table$Actual_Source)
+levels(leave.one.out.results.byind.table$Actual_Source)<-c(levels(ICPMS.all.2015.juvdat.env[sampind,"Site"]),c(refsite.n+1:extrasite.n))
+
+colour.vec<-rainbow(max(leave.one.out.results.byind.table$Individual), s=.6, v=.9)[sample(c(1:max(leave.one.out.results.byind.table$Individual)),max(leave.one.out.results.byind.table$Individual))]
+colour.vec<-colour.vec[match(leave.one.out.results.byind.table$Individual,c(1:max(leave.one.out.results.byind.table$Individual)))]
+
+
+
+ggplot(leave.one.out.results.byind.table,aes(x=Predicted_Source,group=Individual,y=Percent_Assignment,colour=factor(Individual)))+
+  facet_grid(Actual_Source~Cov_Prior)+
+  geom_line() + 
+  scale_colour_manual(values = colour.vec)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),legend.position="none")
+
+```
+
+This is further reflected in the data summarized by group. Where individuals were mis-assigned using other co-variance matrices, reflected where groups overlapped in multivariate space (see the PCA).
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+leave.one.out.results.byind.assignment<-ddply(leave.one.out.results.byind.table,.(Individual,Cov_Prior,Actual_Source),summarize,Predicted_Source=which.max(Percent_Assignment))
+leave.one.out.results.byind.assignment$Predicted_Source<-factor(leave.one.out.results.byind.assignment$Predicted_Source)
+levels(leave.one.out.results.byind.assignment$Predicted_Source)<-c(levels(ICPMS.all.2015.juvdat.env[sampind,"Site"]),c(refsite.n+1:extrasite.n))[1:length(unique(leave.one.out.results.byind.assignment$Predicted_Source))]
+
+#ID
+ID.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="ID")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="ID")[,c(3:4)])))[c(1:5),]
+
+#Source_and_ID
+Source_and_ID.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_ID")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_ID")[,c(3:4)])))[c(1:5),]
+
+#Source_and_Universal
+Source_and_Universal.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_Universal")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_Universal")[,c(3:4)])))[c(1:5),]
+
+#Universal
+Universal.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Universal")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Universal")[,c(3:4)])))[c(1:5),]
+
+library(reshape)
+leave.one.out.results.all.assignment<-cbind(data.frame(Cov_Prior=rep(c("ID","Source_and_ID","Source_and_Universal","Universal"),each=5),Actual_Source=rep(row.names(ID.assign.table),4)),rbind(ID.assign.table,Source_and_ID.assign.table,Source_and_Universal.assign.table,Universal.assign.table))
+leave.one.out.results.all.assignment<-melt(leave.one.out.results.all.assignment)
+colnames(leave.one.out.results.all.assignment)[3:4]<-c("Predicted_Source","Percent_Assigned")
+
+ggplot(leave.one.out.results.all.assignment,aes(x=Predicted_Source,y=Actual_Source,fill=Percent_Assigned))+
+  facet_wrap(~Cov_Prior,ncol=4)+
+  geom_tile(colour = "white") + 
+  scale_fill_gradient(low = "white", high = "red",limits=c(0,1))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+
+
+For all groups, the Identity co-variance matrix assigned individuals to the correct group most often.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+leave.one.out.results.byind.assignment.table<-leave.one.out.results.byind.assignment
+leave.one.out.results.byind.assignment.table$Correct<-as.numeric(as.character(leave.one.out.results.byind.assignment.table$Actual_Source)==as.character(leave.one.out.results.byind.assignment.table$Predicted_Source))
+leave.one.out.results.byind.assignment.table$Individual_Code<-paste0(leave.one.out.results.byind.assignment.table$Actual_Source,leave.one.out.results.byind.assignment.table$Individual)
+
+leave.one.out.results.correct.assignment<-ddply(leave.one.out.results.byind.assignment.table,.(Cov_Prior,Actual_Source),summarize,Correctly_Assigned=sum(Correct),Total=length(Correct))
+leave.one.out.results.correct.assignment$Percent_Correct<-leave.one.out.results.correct.assignment$Correctly_Assigned/leave.one.out.results.correct.assignment$Total
+
+
+ggplot(leave.one.out.results.correct.assignment,aes(x=Actual_Source,y=Percent_Correct,fill=Cov_Prior))+
+  geom_bar(stat="identity",position="dodge")+
+  scale_fill_brewer(name="Covariance Prior",breaks=c("ID", "Source_and_ID","Source_and_Universal","Universal"),labels=c("Identity Matrix", "Source Specific Covariance,\nthen Identity Matrices","Source Specific Covariance,\nthen Universal Covariance Matrices","Universal Covariance Matrix"))+
+  xlab("Actual Source")+
+  ylab("Percent Correctly Assigned")+
+  theme_bw()
+
+```
+

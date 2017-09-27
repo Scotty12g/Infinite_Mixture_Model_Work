@@ -1,0 +1,27 @@
+---
+title: "Larval Analysis Comparison"
+output: html_notebook
+---
+
+For larvae from the 2015 ICPMS data were used to train different classification models:
+
+  * QDFA
+  * Random Forest
+  * Infinite Mixture Model (IMM) using a...
+    * Identity Co-variance Matrix
+    * Source Specific + ID Co-variance Matrix
+    * Source Specific + Universal Co-variance Matrix
+    * Universal Co-variance Matrix
+
+For the IMM, only sites with the greatest numbers of individuals (>35) were used during analysis for logistical reasons, and to reduce computer-run-time. For the QDFA and Random Forest, all sites were used. Leave-one-out cross validation was used to assess the ability of each model to re-classify larvae to their source. The cross validation results (percent of larvae correctly classified) are plotted below.
+
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+
+ggplot(CV.DataTable,aes(x=Site,y=CV.Correct,fill=Analysis))+
+  geom_bar(position = "dodge", stat="identity",colour="black")+
+  ylab("Percent Correct (Leave-one-out Cross Validation)")+
+  theme_bw()
+```
+
+Generally, the Random Forest analysis was able to classify larvae to the correct source more frequently than any other analysis. The IMM also performed well, although it was not run on sites with low sample sizes. Subjectively, experimenting with the IMM and training sample sizes, it seems the Random Forest still does best overall. The QDFA under-preforms relative to other analyses.

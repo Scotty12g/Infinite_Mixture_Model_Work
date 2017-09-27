@@ -1,0 +1,182 @@
+---
+title: "Infinite Mixture Model Leave-One-Out Analysis for *Mytilus edulis* Larvae"
+output: html_notebook
+---
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library("plyr")
+library("abind")
+library("reshape")
+library("ggplot2")
+library("car")
+library("lme4")
+library("ggfortify")
+
+### some element data
+
+ICPMS.all.2015.dat<-read.csv("/Users/scottmorello/Dropbox/Archives/Academic/UMass Boston/Etter Lab/Projects/Trace Element Mussel Connectivity/2015 ICPMS Datasets/2015.All.Data.csv")
+
+ICPMS.all.2015.juvdat<-subset(ICPMS.all.2015.dat,Type=="Larvae")
+top.sources<-names(sort(summary(ICPMS.all.2015.juvdat$Site),decreasing = TRUE))[1:5]
+ICPMS.all.2015.juvdat<-subset(ICPMS.all.2015.juvdat,Site==top.sources[1]|Site==top.sources[2]|Site==top.sources[3]|Site==top.sources[4]|Site==top.sources[5])
+ICPMS.all.2015.juvdat$Site<-factor(ICPMS.all.2015.juvdat$Site)
+ICPMS.all.2015.juvdat.env<-ICPMS.all.2015.juvdat[,c(1:4)]
+ICPMS.all.2015.juvdat.val<-ICPMS.all.2015.juvdat[,-c(1:4)]
+ICPMS.all.2015.juvdat.val.trans<-log(ICPMS.all.2015.juvdat.val+1,10)
+
+
+leave.one.out.results<-readRDS("/Users/scottmorello/Dropbox/Archives/Academic/UMass Boston/Etter Lab/Projects/Trace Element Mussel Connectivity/R Work/Infinite Mixture Model in R/Jags_Work/leaveoneoutresults.rds")
+
+```
+## The Analysis
+  The following analysis pulled geochemistry data from the 2015 Reference Larvae data set, and tested the effects of larval source, and co-variance matrix prior, on the ability of the infinite mixture model (IMM) to correctly assign larvae to sources. During analysis, each larvae was removed from the overall data set, and the remaining larvae used as baseline data to train the IMM. The individual larvae removed from the data set was then assigned to a source based on the IMM, allowing for 7 possible extra, and untrained, source assignments, using each of four different co-variance matrix priors:
+
+* The Identity Matrix for all sources
+* Source Specific Co-variance Matrices for baseline sources, and then the Identity Matrix for extra sources
+* Source Specific Co-variance Matrices for baseline sources, and then the Universal Co-variance Matrix for extra sources
+* The Universal Co-variance Matrix for all sources
+
+For each co-variance matrix prior for each larvae, the IMM was run for an initial 1000 adaptation and 2000 burn-in iterations. The posterior distribution of source assignments for a final 3000 iterations were retained and used for further analysis.
+
+
+## The Data Set
+
+  Data were $Log(x+1)$ transformed, and centered (by elemental mean) and scaled (by elemental standard deviation) prior to analysis. Together, these transformations were meant to normalize the elemental data, and then standardize the center and variance so that unknown sources could be easily modeled in the IMM. Principal Component Analysis suggested a lot of overlap in the multivariate geochemical signals among sources along the first 2 principle components (accounting for 36 and 22 percent of total variation respectively). Of all elements, **Mg** accounted for the most variation among individual larvae, while **La** accounted for the least.
+```{r, echo=FALSE, fig.height=2, fig.width=3, message=FALSE, warning=FALSE}
+
+autoplot(prcomp(ICPMS.all.2015.juvdat.val.trans), 
+         data = ICPMS.all.2015.juvdat.env, 
+         colour = "Site",
+         loadings = TRUE,
+         loadings.label = TRUE,
+         frame = TRUE, 
+         frame.type = 'norm')+
+  theme_bw()
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+summary(prcomp(ICPMS.all.2015.juvdat.val.trans))
+```
+
+
+## Results by Individual
+
+  Below are the posterior distribution results of the IMM assignment for each individual larvae (color) to each potential source (x-axis; numbers represent possible extra sources). Results are separated by the actual larval source (panel rows) and the co-variance matrix prior used in the IMM (panel columns).
+```{r, echo=FALSE, fig.height=3, fig.width=4, message=FALSE, warning=FALSE}
+leave.one.out.results.byind.table<-melt(leave.one.out.results,id.vars=c("Individual","Cov_Prior","Actual"))
+colnames(leave.one.out.results.byind.table)[3:5]<-c("Actual_Source","Predicted_Source","Percent_Assignment")
+
+leave.one.out.results.byind.table$Predicted_Source<-factor(leave.one.out.results.byind.table$Predicted_Source)
+levels(leave.one.out.results.byind.table$Predicted_Source)<-c(levels(ICPMS.all.2015.juvdat.env[sampind,"Site"]),c(refsite.n+1:extrasite.n))
+
+leave.one.out.results.byind.table$Actual_Source<-factor(leave.one.out.results.byind.table$Actual_Source)
+levels(leave.one.out.results.byind.table$Actual_Source)<-c(levels(ICPMS.all.2015.juvdat.env[sampind,"Site"]),c(refsite.n+1:extrasite.n))
+
+
+colour.vec<-rainbow(max(leave.one.out.results.byind.table$Individual), s=.6, v=.9)[sample(c(1:max(leave.one.out.results.byind.table$Individual)),max(leave.one.out.results.byind.table$Individual))]
+colour.vec<-colour.vec[match(leave.one.out.results.byind.table$Individual,c(1:max(leave.one.out.results.byind.table$Individual)))]
+
+
+ggplot(leave.one.out.results.byind.table,aes(x=Predicted_Source,group=Individual,y=Percent_Assignment,colour=factor(Individual)))+
+    facet_grid(Actual_Source~Cov_Prior)+
+    geom_line() + 
+    scale_colour_manual(values = colour.vec)+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1),legend.position="none")
+```
+We can see that generally, individual sources assign most frequently to one source, which is usually the correct one. Sources like CHR, FBE and GB are more multi-modal and diffuse in their assignments though.
+
+
+## Results by Source
+
+To summarize assignment results by site, we take the mode source assignment for each individual and use that as the IMM predicted source assignment. Then, for each co-variance matrix prior (panels), we plot the percent of individuals from each source (Actual Source) assigned to each possible source by the IMM (Predicted Source).
+```{r, echo=FALSE, fig.height=1, fig.width=4, message=FALSE, warning=FALSE}
+leave.one.out.results.byind.assignment<-ddply(leave.one.out.results.byind.table,.(Individual,Cov_Prior,Actual_Source),summarize,Predicted_Source=which.max(Percent_Assignment))
+leave.one.out.results.byind.assignment$Predicted_Source<-factor(leave.one.out.results.byind.assignment$Predicted_Source)
+levels(leave.one.out.results.byind.assignment$Predicted_Source)<-c(levels(ICPMS.all.2015.juvdat.env[sampind,"Site"]),c(refsite.n+1:extrasite.n))[1:length(unique(leave.one.out.results.byind.assignment$Predicted_Source))]
+
+#ID
+ID.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="ID")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="ID")[,c(3:4)])))[c(1:5),]
+
+#Source_and_ID
+Source_and_ID.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_ID")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_ID")[,c(3:4)])))[c(1:5),]
+
+#Source_and_Universal
+Source_and_Universal.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_Universal")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Source_and_Universal")[,c(3:4)])))[c(1:5),]
+
+#Universal
+Universal.assign.table<-(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Universal")[,c(3:4)])/rowSums(table(subset(leave.one.out.results.byind.assignment,Cov_Prior=="Universal")[,c(3:4)])))[c(1:5),]
+
+leave.one.out.results.all.assignment<-cbind(data.frame(Cov_Prior=rep(c("ID","Source_and_ID","Source_and_Universal","Universal"),each=5),Actual_Source=rep(row.names(ID.assign.table),4)),rbind(ID.assign.table,Source_and_ID.assign.table,Source_and_Universal.assign.table,Universal.assign.table))
+leave.one.out.results.all.assignment<-melt(leave.one.out.results.all.assignment)
+colnames(leave.one.out.results.all.assignment)[3:4]<-c("Predicted_Source","Percent_Assigned")
+
+
+ggplot(leave.one.out.results.all.assignment,aes(x=Predicted_Source,y=Actual_Source,fill=Percent_Assigned))+
+  facet_wrap(~Cov_Prior,ncol=4)+
+  geom_tile(colour = "white") + 
+  scale_fill_gradient(low = "white", high = "red",limits=c(0,1))+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+Just as before, when we looked at data on an individual level, we generally see IMM assignment to correct sources, but CHR is mostly confused with PHB and FBW, and GB and FBW are confused with each other. Maximum percentage correctly assigned was only 62% for FBE though.
+
+
+## Effects of Source and Coviariance Matrix Prior on Correct Assignment
+
+To understand what is driving misclassification by the IMM, we test the effects of Actual Source, Co-variance Prior, and their interaction with a GLM (family=binomial, link=log), using individual nested within actual source as a random effect.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+leave.one.out.results.byind.assignment.table<-leave.one.out.results.byind.assignment
+leave.one.out.results.byind.assignment.table$Correct<-as.numeric(as.character(leave.one.out.results.byind.assignment.table$Actual_Source)==as.character(leave.one.out.results.byind.assignment.table$Predicted_Source))
+leave.one.out.results.byind.assignment.table$Individual_Code<-paste0(leave.one.out.results.byind.assignment.table$Actual_Source,leave.one.out.results.byind.assignment.table$Individual)
+
+leave.one.out.results.correct.assignment.lm2<-glmer(Correct~Actual_Source*Cov_Prior+(1|Actual_Source/Individual_Code),data=leave.one.out.results.byind.assignment.table,family=binomial)
+ss <- getME(leave.one.out.results.correct.assignment.lm2,c("theta","fixef"))
+leave.one.out.results.correct.assignment.lm<-update(leave.one.out.results.correct.assignment.lm2,start=ss,control=glmerControl(optimizer="bobyqa",optCtrl=list(maxfun=2e4)))
+Anova(leave.one.out.results.correct.assignment.lm,type=3)
+```
+We find that a larva's actual source has the greatest, and only marginally insignificant, effect on correct classification.
+
+We can use the regression coefficient summaries for a more in-depth look.
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+summary(leave.one.out.results.correct.assignment.lm)
+```
+Relative to the intercept (reflecting the CHR source and using the ID co-variance matrix), larvae from GB were the only ones to have a significantly similar frequency of correct assignments. This is pretty consistent with what we saw in the figures before - CHR and GB had low frequencies of correct assignments, while other sources were better.
+
+
+## Results by Covariance Matrix Prior
+If we wanted to look at the effect of different co-variance priors, we see that, generally, using the source specific co-variance matrices leads to the best assignments.
+```{r, echo=FALSE, fig.height=2, fig.width=4, message=FALSE, warning=FALSE}
+leave.one.out.results.correct.assignment<-ddply(leave.one.out.results.byind.assignment.table,.(Cov_Prior,Actual_Source),summarize,Correctly_Assigned=sum(Correct),Total=length(Correct))
+leave.one.out.results.correct.assignment$Percent_Correct<-leave.one.out.results.correct.assignment$Correctly_Assigned/leave.one.out.results.correct.assignment$Total
+
+
+ggplot(leave.one.out.results.correct.assignment,aes(x=Actual_Source,y=Percent_Correct,fill=Cov_Prior))+
+  geom_bar(stat="identity",position="dodge")+
+  scale_fill_brewer(name="Covariance Prior",breaks=c("ID", "Source_and_ID","Source_and_Universal","Universal"),labels=c("Identity Matrix", "Source Specific Covariance,\nthen Identity Matrices","Source Specific Covariance,\nthen Universal Covariance Matrices","Universal Covariance Matrix"))+
+  xlab("Actual Source")+
+  ylab("Percent Correctly Assigned")+
+  theme_bw()
+```
+
+Taken together, the results suggest that for best assignment, we should run the IMM with source specific and universal co-variance priors. Taking these IMM assignments and projecting the correct and incorrect assignments onto the PCA from before, we see that there is no clear pattern, geochemically, for why individuals are misassigned.
+```{r, echo=FALSE, fig.height=2, fig.width=3, message=FALSE, warning=FALSE}
+leave.one.out.results.byind.assignment.correct<-subset(leave.one.out.results.byind.assignment.table,Cov_Prior=="Source_and_Universal")
+leave.one.out.results.byind.assignment.correct$Correct[which(leave.one.out.results.byind.assignment.correct$Correct==1)]<-"Correct"
+leave.one.out.results.byind.assignment.correct$Correct[-which(leave.one.out.results.byind.assignment.correct$Correct=="Correct")]<-"Incorrect"
+
+
+ICPMS.all.2015.juvdat.env2<-ICPMS.all.2015.juvdat.env
+ICPMS.all.2015.juvdat.env2$Correct<-factor(leave.one.out.results.byind.assignment.correct$Correct)
+
+autoplot(prcomp(ICPMS.all.2015.juvdat.val.trans), 
+         data = ICPMS.all.2015.juvdat.env2, 
+         colour = "Site",
+         shape="Correct",
+         loadings = TRUE,
+         loadings.label = TRUE,
+         frame = TRUE, 
+         frame.type = 'norm')+
+  theme_bw()
+```
+
+Overall, we learn that source specific and universal co-variance matrices produce marginally better IMM results when assigning larvae, but that the greatest influence on IMM misclassifications is source-specific geochemistry.
