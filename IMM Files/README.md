@@ -6,9 +6,9 @@ The R Files: “IMM_Functions.R” is the file you open in R, and just select al
 
 - Raw_IMM_File.rds: The raw R file output from the model… you can only read this inside R using the readRDS("___filepath__") function, but it’s a good way to save the run for later use
 
-- Test_Best_Assign.csv: A table showing the best source assignment for each test individual, and where each test individual was gathered (i.e., where it settled)
+- Test_Best_Assign.csv: A table showing the best source assignment for each test individual, and where each test individual was gathered (i.e., where it settled)
 
-- Test_Prob_Assign.csv: A table showing where each test individual was gathered, and the probability of assignment to all sources averaged across all model iterations
+- Test_Prob_Assign.csv: A table showing where each test individual was gathered, and the probability of assignment to all sources averaged across all model iterations
 
 The Infinite Mixture Model in the "IMM_Functions.R" file is implement in JAGS through R (via the "rjags" package). The JAGS model has been altered and repurposed from original code by:
 
